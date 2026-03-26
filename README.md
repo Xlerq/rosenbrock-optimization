@@ -68,16 +68,21 @@ The experiment includes:
 - maximization reaches the global maximum much more often
 - larger `alpha` generally increases computational cost
 - the starting point strongly affects the final result
+
 ## Example trajectories
 
 The plots below show the Rosenbrock method for the same parameter setting  
-`alpha = 3`, `beta = 1/3`, comparing maximization and minimization.
+`alpha = 3`, `beta = 1/3`, for both optimization goals.
 
-This gives a compact visual summary of how the search path depends on the optimization goal and the local structure of the objective function.
+<p align="center">
+  <img src="./figures/trajectory-max-a3-b13.png" alt="Maximization trajectory for alpha=3, beta=1/3" width="48%">
+  <img src="./figures/trajectory-min-a3-b13.png" alt="Minimization trajectory for alpha=3, beta=1/3" width="48%">
+</p>
 
-| Maximization | Minimization |
-|---|---|
-| ![Maximization trajectory for alpha=3, beta=1/3](./figures/path-max-a3-b13.png) | ![Minimization trajectory for alpha=3, beta=1/3](./figures/path-min-a3-b13.png) |
+<p align="center">
+  <em>Left: maximization. Right: minimization. Same parameters, different search behavior.</em>
+</p>
+
 ## Repository structure
 
 ```text
@@ -95,12 +100,9 @@ This gives a compact visual summary of how the search path depends on the optimi
 
 ## Run
 
-When the project is fully modularized, the experiment should be runnable with:
+The current full implementation is preserved in `report/report.Rmd`.
 
-```bash
-Rscript scripts/run_experiment.R
-```
-
+A standalone command-line entry point in `scripts/run_experiment.R` is planned as part of the ongoing refactor.
 ## Current contents
 
 This repository currently contains:
