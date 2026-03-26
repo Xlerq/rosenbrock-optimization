@@ -1,0 +1,530 @@
+---
+title: "Optymalizacja wielowymiarowa metodą Rosenbrocka"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+## 1. Konfiguracja i biblioteki
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# Pakiet do Excela
+if (!requireNamespace("openxlsx", quietly = TRUE)) {
+  install.packages("openxlsx")
+}
+library(openxlsx)
+```
+
+## 2. Funkcja celu i metoda Rosenbrocka (z rotacją bazy)
+
+```{r definitions}
+# ---- Funkcja celu (wersja "surowa", bez ograniczeń) ----
+f_raw <- function(x, y) {
+  x^2 - y^2 - cos(1.8*pi*x) - cos(1.6*pi*(y - 0.5)) + 3
+}
+
+# ---- Funkcja celu z ograniczeniem do [-1,1]x[-1,1] (dla minimalizacji) ----
+f_constrained <- function(v) {
+  if (any(!is.finite(v)) || any(abs(v) > 1)) return(Inf)
+  f_raw(v[1], v[2])
+}
+
+# ---- Funkcja do maksymalizacji: minimalizujemy g = -f, ALE z poprawnym ograniczeniem ----
+# UWAGA: po wyjściu poza dziedzinę zwracamy +Inf (żeby algorytm NIE chciał tam uciekać).
+g_constrained <- function(v) {
+  if (any(!is.finite(v)) || any(abs(v) > 1)) return(Inf)
+  -f_raw(v[1], v[2])
+}
+
+# ---- Gram–Schmidt (ortogonalizacja wierszy) z "dokończeniem" bazy fallbackiem ----
+gram_schmidt_complete <- function(A, fallback, tol = 1e-12) {
+  n <- nrow(A)
+  Q <- matrix(0, n, n)
+
+  for (i in 1:n) {
+    v <- A[i,]
+    if (sqrt(sum(v^2)) < tol) v <- fallback[i,]
+
+    # ortogonalizacja względem poprzednich kierunków
+    if (i > 1) {
+      for (j in 1:(i-1)) {
+        v <- v - sum(v * Q[j,]) * Q[j,]
+      }
+    }
+
+    nv <- sqrt(sum(v^2))
+
+    # jeżeli wektor się wyzerował (zależność liniowa), próbujemy dołożyć kierunek z fallback
+    if (nv < tol) {
+      for (k in 1:n) {
+        v2 <- fallback[k,]
+        if (i > 1) {
+          for (j in 1:(i-1)) {
+            v2 <- v2 - sum(v2 * Q[j,]) * Q[j,]
+          }
+        }
+        nv2 <- sqrt(sum(v2^2))
+        if (nv2 >= tol) {
+          v <- v2
+          nv <- nv2
+          break
+        }
+      }
+    }
+
+    if (nv < tol) return(NULL) # nie udało się zbudować bazy
+    Q[i,] <- v / nv
+  }
+
+  Q
+}
+
+# ---- Metoda Rosenbrocka (bezgradientowa) z rotacją bazy ----
+# Kierunki trzymamy w macierzy d (wiersze = kierunki).
+rosenbrock_search <- function(f, x0, alpha, beta,
+                              eps = 1e-6, max_iter = 1000, initial_delta = 0.1,
+                              basis_tol = 1e-12) {
+  n <- length(x0)
+  x <- as.numeric(x0)
+
+  # baza początkowa: jednostkowa
+  d <- diag(n)
+
+  # długości kroków (mogą zmieniać znak – to oznacza "spróbuj w drugą stronę")
+  delta <- rep(initial_delta, n)
+
+  f_current <- f(x)
+  f_count <- 1
+  basis_changes <- 0
+  iter <- 0
+
+  # ścieżka punktów (do wykresu): zapisujemy tylko punkty zaakceptowane
+  path <- matrix(x, nrow = 1)
+
+  while (max(abs(delta)) > eps && iter < max_iter) {
+    iter <- iter + 1
+
+    # a[i] – łączny przesuw w tym etapie wzdłuż i-tego kierunku
+    a <- rep(0, n)
+    moved <- FALSE
+
+    for (i in 1:n) {
+      x_trial <- x + delta[i] * d[i,]
+      f_trial <- f(x_trial)
+      f_count <- f_count + 1
+
+      if (is.finite(f_trial) && f_trial < f_current) {
+        # sukces
+        x <- x_trial
+        f_current <- f_trial
+        a[i] <- a[i] + delta[i]
+        moved <- TRUE
+
+        # ekspansja kroku
+        delta[i] <- delta[i] * alpha
+
+        # zapis punktu do ścieżki
+        path <- rbind(path, x)
+      } else {
+        # porażka: kontrakcja i zmiana znaku (spróbujemy "w drugą stronę")
+        delta[i] <- -beta * delta[i]
+      }
+    }
+
+    # Zmiana bazy (rotacja) – jeśli w tym etapie gdziekolwiek się ruszyliśmy
+    if (moved) {
+      # Budujemy macierz A zgodnie z ideą Rosenbrocka/Palmera:
+      # A[k] = sum_{j=k..n} a[j] * d[j]
+      A <- matrix(0, n, n)
+      for (k in n:1) {
+        for (j in k:n) {
+          A[k,] <- A[k,] + a[j] * d[j,]
+        }
+      }
+
+      d_new <- gram_schmidt_complete(A, fallback = d, tol = basis_tol)
+
+      if (!is.null(d_new)) {
+        # Zliczamy zmianę bazy tylko wtedy, gdy nowa baza różni się istotnie od starej
+        # (ignorujemy ewentualne odwrócenie znaku kierunku: d oraz -d to ten sam kierunek).
+        changed <- FALSE
+        for (i_dir in 1:n) {
+          dist_same  <- sqrt(sum((d_new[i_dir,] - d[i_dir,])^2))
+          dist_flip  <- sqrt(sum((d_new[i_dir,] + d[i_dir,])^2))
+          if (min(dist_same, dist_flip) > 1e-8) {
+            changed <- TRUE
+            break
+          }
+        }
+
+        d <- d_new
+        if (changed) basis_changes <- basis_changes + 1
+
+        # po zmianie bazy kasujemy znaki kroków (sens znaku "starego" znika po rotacji)
+        delta <- abs(delta)
+      }
+    }
+  }
+
+  list(
+    x = x,
+    y = f_current,
+    f_count = f_count,
+    basis_changes = basis_changes,
+    path = path,
+    iters = iter,
+    converged = (max(abs(delta)) <= eps)
+  )
+}
+
+# ---- (Opcjonalnie) prosta klasyfikacja globalne/lokalne na podstawie przybliżenia z siatki ----
+# Nie jest to wymagane wprost w poleceniu, ale ułatwia podsumowania średnich.
+estimate_global_extrema <- function(n_grid = 401) {
+  xs <- seq(-1, 1, length.out = n_grid)
+  ys <- seq(-1, 1, length.out = n_grid)
+  Z <- outer(xs, ys, f_raw)   # Z[i,j] = f(xs[i], ys[j])
+  list(min = min(Z), max = max(Z))
+}
+
+ext_ref <- estimate_global_extrema(n_grid = 401)
+global_min_ref <- ext_ref$min
+global_max_ref <- ext_ref$max
+
+classify <- function(val, is_min = TRUE, tol = 0.02) {
+  if (is.na(val) || !is.finite(val)) return("Brak zbieżności")
+  if (is_min) {
+    if (abs(val - global_min_ref) <= tol) return("Minimum globalne")
+    return("Minimum lokalne")
+  } else {
+    if (abs(val - global_max_ref) <= tol) return("Maksimum globalne")
+    return("Maksimum lokalne")
+  }
+}
+```
+
+## 3. Obliczenia (100 punktów startowych, 3 zestawy α/β)
+
+```{r calculations}
+# Parametry zgodne z poleceniem:
+params <- list(
+  list(label = "2, 1/2", alpha = 2, beta = 1/2),
+  list(label = "3, 1/3", alpha = 3, beta = 1/3),
+  list(label = "4, 1/4", alpha = 4, beta = 1/4)
+)
+
+# 100 punktów startowych w [-1,1]x[-1,1]
+set.seed(123)
+starts <- matrix(runif(200, -1, 1), ncol = 2)
+
+# Punkt wybrany do wykresów: pierwszy z listy
+selected_start_idx <- 1
+start_plot <- starts[selected_start_idx, ]
+
+# Kontenery na dane
+min_wyniki_list <- list()
+min_avg_list <- list()
+min_paths <- list()   # ścieżki dla wybranego punktu startowego (dla 3 parametrów)
+
+max_wyniki_list <- list()
+max_avg_list <- list()
+max_paths <- list()
+
+# --- Pętla po zestawach (α,β) ---
+for (p_idx in seq_along(params)) {
+  p <- params[[p_idx]]
+
+  # =========================
+  # 1) MINIMALIZACJA
+  # =========================
+  res_df <- data.frame(check.names = FALSE)
+  path_for_plot <- NULL
+
+  for (i in 1:100) {
+    res <- rosenbrock_search(
+      f = f_constrained,
+      x0 = starts[i,],
+      alpha = p$alpha,
+      beta = p$beta
+    )
+
+    # jeżeli brak zbieżności, wpisujemy NA w x*, y*
+    if (res$converged) {
+      x_star <- res$x
+      y_star <- res$y
+    } else {
+      x_star <- c(NA, NA)
+      y_star <- NA
+    }
+
+    typ <- classify(y_star, is_min = TRUE)
+
+    if (i == selected_start_idx) path_for_plot <- res$path
+
+    res_df <- rbind(res_df, data.frame(
+      Parametry = p$label,
+      `Lp.` = i,
+      `x1(0)` = starts[i,1],
+      `x2(0)` = starts[i,2],
+      `x1*` = x_star[1],
+      `x2*` = x_star[2],
+      `y*` = y_star,
+      `L.wywołań` = res$f_count,
+      `L.zmian bazy` = res$basis_changes,
+      `Typ ekstremum` = typ,
+      check.names = FALSE
+    ))
+  }
+
+  min_wyniki_list[[p_idx]] <- res_df
+  min_paths[[p_idx]] <- path_for_plot
+
+  # Średnie dla MIN
+  types_min <- c("Minimum globalne", "Minimum lokalne", "Brak zbieżności")
+  avg_df <- data.frame(check.names = FALSE)
+
+  for (t in types_min) {
+    sub <- res_df[res_df[["Typ ekstremum"]] == t, , drop = FALSE]
+    count <- nrow(sub)
+
+    if (count > 0) {
+      avg_df <- rbind(avg_df, data.frame(
+        Parametry = p$label,
+        Rodzaj = t,
+        `x1*` = mean(sub$`x1*`, na.rm = TRUE),
+        `x2*` = mean(sub$`x2*`, na.rm = TRUE),
+        `y*` = mean(sub$`y*`, na.rm = TRUE),
+        `Śr. wywołań` = mean(sub$`L.wywołań`, na.rm = TRUE),
+        `Śr. zmian bazy` = mean(sub$`L.zmian bazy`, na.rm = TRUE),
+        `Liczba wystąpień` = count,
+        check.names = FALSE
+      ))
+    } else {
+      avg_df <- rbind(avg_df, data.frame(
+        Parametry = p$label, Rodzaj = t,
+        `x1*` = NA, `x2*` = NA, `y*` = NA,
+        `Śr. wywołań` = NA, `Śr. zmian bazy` = NA,
+        `Liczba wystąpień` = 0,
+        check.names = FALSE
+      ))
+    }
+  }
+  min_avg_list[[p_idx]] <- avg_df
+
+  # =========================
+  # 2) MAKSYMALIZACJA
+  # =========================
+  res_df_max <- data.frame(check.names = FALSE)
+  path_for_plot_max <- NULL
+
+  for (i in 1:100) {
+    res <- rosenbrock_search(
+      f = g_constrained,   # minimalizujemy -f, z poprawnym ograniczeniem
+      x0 = starts[i,],
+      alpha = p$alpha,
+      beta = p$beta
+    )
+
+    if (res$converged) {
+      x_star <- res$x
+      y_star <- -res$y   # "odkręcenie" znaku
+    } else {
+      x_star <- c(NA, NA)
+      y_star <- NA
+    }
+
+    typ <- classify(y_star, is_min = FALSE)
+
+    if (i == selected_start_idx) path_for_plot_max <- res$path
+
+    res_df_max <- rbind(res_df_max, data.frame(
+      Parametry = p$label,
+      `Lp.` = i,
+      `x1(0)` = starts[i,1],
+      `x2(0)` = starts[i,2],
+      `x1*` = x_star[1],
+      `x2*` = x_star[2],
+      `y*` = y_star,
+      `L.wywołań` = res$f_count,
+      `L.zmian bazy` = res$basis_changes,
+      `Typ ekstremum` = typ,
+      check.names = FALSE
+    ))
+  }
+
+  max_wyniki_list[[p_idx]] <- res_df_max
+  max_paths[[p_idx]] <- path_for_plot_max
+
+  # Średnie dla MAX
+  types_max <- c("Maksimum globalne", "Maksimum lokalne", "Brak zbieżności")
+  avg_df_max <- data.frame(check.names = FALSE)
+
+  for (t in types_max) {
+    sub <- res_df_max[res_df_max[["Typ ekstremum"]] == t, , drop = FALSE]
+    count <- nrow(sub)
+
+    if (count > 0) {
+      avg_df_max <- rbind(avg_df_max, data.frame(
+        Parametry = p$label,
+        Rodzaj = t,
+        `x1*` = mean(sub$`x1*`, na.rm = TRUE),
+        `x2*` = mean(sub$`x2*`, na.rm = TRUE),
+        `y*` = mean(sub$`y*`, na.rm = TRUE),
+        `Śr. wywołań` = mean(sub$`L.wywołań`, na.rm = TRUE),
+        `Śr. zmian bazy` = mean(sub$`L.zmian bazy`, na.rm = TRUE),
+        `Liczba wystąpień` = count,
+        check.names = FALSE
+      ))
+    } else {
+      avg_df_max <- rbind(avg_df_max, data.frame(
+        Parametry = p$label, Rodzaj = t,
+        `x1*` = NA, `x2*` = NA, `y*` = NA,
+        `Śr. wywołań` = NA, `Śr. zmian bazy` = NA,
+        `Liczba wystąpień` = 0,
+        check.names = FALSE
+      ))
+    }
+  }
+  max_avg_list[[p_idx]] <- avg_df_max
+}
+
+# Sklejenie wyników w jedną tabelę
+final_min_wyniki <- do.call(rbind, min_wyniki_list)
+final_max_wyniki <- do.call(rbind, max_wyniki_list)
+
+final_min_avg <- do.call(rbind, min_avg_list)
+final_max_avg <- do.call(rbind, max_avg_list)
+```
+
+## 4. Dane do wykresów (trajektorie dla jednego punktu startowego)
+
+```{r plot_data}
+prepare_plot_data <- function(path_list, labels) {
+  # path_list: lista macierzy Nx2
+  lens <- sapply(path_list, nrow)
+  max_len <- max(lens)
+
+  df <- data.frame(Iteracja = 0:(max_len - 1))
+
+  for (i in seq_along(path_list)) {
+    mat <- path_list[[i]]
+    if (is.null(mat)) {
+      mat <- matrix(NA, nrow = max_len, ncol = 2)
+    } else if (nrow(mat) < max_len) {
+      mat <- rbind(mat, matrix(NA, nrow = max_len - nrow(mat), ncol = 2))
+    }
+
+    tmp <- data.frame(mat)
+    colnames(tmp) <- c(paste0(labels[i], " x"), paste0(labels[i], " y"))
+    df <- cbind(df, tmp)
+  }
+
+  df
+}
+
+labels <- sapply(params, function(p) p$label)
+
+# trajektorie dla minimalizacji i maksymalizacji (wybrany punkt startowy)
+traj_min <- prepare_plot_data(min_paths, labels)
+traj_max <- prepare_plot_data(max_paths, labels)
+
+# Funkcja tworząca wykres poziomic + trajektorię i zapisująca go do PNG
+save_contour_with_path <- function(path_mat, main_title, file_png,
+                                   n_grid = 200, n_levels = 30) {
+  xs <- seq(-1, 1, length.out = n_grid)
+  ys <- seq(-1, 1, length.out = n_grid)
+  Z <- outer(xs, ys, f_raw)
+
+  png(filename = file_png, width = 900, height = 750, res = 120)
+  contour(xs, ys, Z,
+          nlevels = n_levels,
+          xlab = "x", ylab = "y",
+          main = main_title)
+
+  if (!is.null(path_mat) && nrow(path_mat) >= 1) {
+    if (nrow(path_mat) >= 2) {
+      lines(path_mat[,1], path_mat[,2], type = "o")
+    } else {
+      points(path_mat[1,1], path_mat[1,2], pch = 16)
+    }
+    points(path_mat[1,1], path_mat[1,2], pch = 16)                 # start
+    points(path_mat[nrow(path_mat),1], path_mat[nrow(path_mat),2], pch = 17) # koniec
+    legend("topright", legend = c("Start", "Koniec"), pch = c(16, 17), bty = "n")
+  }
+  dev.off()
+}
+```
+
+## 5. Generowanie pliku Excel (arkusze: `_wyniki`, `_wartości_średnie`, `_wykresy`)
+
+```{r excel_export}
+# 1) Generujemy 3 wykresy (dla minimalizacji) do wstawienia w Excel
+plot_files <- character(length(params))
+for (i in seq_along(params)) {
+  plot_files[i] <- tempfile(fileext = ".png")
+  save_contour_with_path(
+    path_mat = min_paths[[i]],
+    main_title = paste0("Rosenbrock: trajektoria MIN, ", params[[i]]$label,
+                        "\nstart = (", round(start_plot[1], 4), ", ", round(start_plot[2], 4), ")"),
+    file_png = plot_files[i]
+  )
+}
+
+# 2) Tworzymy workbook z nazwami arkuszy zgodnymi z poleceniem
+wb <- createWorkbook()
+
+addWorksheet(wb, "_wyniki")
+addWorksheet(wb, "_wartości_średnie")
+addWorksheet(wb, "_wykresy")
+
+# ----- Arkusz _wyniki -----
+writeData(wb, "_wyniki", "MINIMALIZACJA", startRow = 1, startCol = 1)
+writeData(wb, "_wyniki", final_min_wyniki, startRow = 2, startCol = 1)
+
+row_after_min <- 2 + nrow(final_min_wyniki) + 2
+writeData(wb, "_wyniki", "MAKSYMALIZACJA", startRow = row_after_min, startCol = 1)
+writeData(wb, "_wyniki", final_max_wyniki, startRow = row_after_min + 1, startCol = 1)
+
+# ----- Arkusz _wartości_średnie -----
+writeData(wb, "_wartości_średnie", "MINIMALIZACJA – wartości średnie", startRow = 1, startCol = 1)
+writeData(wb, "_wartości_średnie", final_min_avg, startRow = 2, startCol = 1)
+
+row_after_min_avg <- 2 + nrow(final_min_avg) + 2
+writeData(wb, "_wartości_średnie", "MAKSYMALIZACJA – wartości średnie", startRow = row_after_min_avg, startCol = 1)
+writeData(wb, "_wartości_średnie", final_max_avg, startRow = row_after_min_avg + 1, startCol = 1)
+
+# ----- Arkusz _wykresy -----
+writeData(wb, "_wykresy",
+          paste0("Punkt startowy (losowy #", selected_start_idx, "): (",
+                 round(start_plot[1], 6), ", ", round(start_plot[2], 6), ")"),
+          startRow = 1, startCol = 1)
+
+writeData(wb, "_wykresy",
+          "Trzy wykresy: poziomice f(x,y) + trajektoria kolejnych punktów (MINIMALIZACJA)",
+          startRow = 2, startCol = 1)
+
+# Wstawiamy 3 obrazki jeden pod drugim
+insertImage(wb, "_wykresy", plot_files[1], startRow = 4,  startCol = 1, width = 7, height = 5.5, units = "in")
+insertImage(wb, "_wykresy", plot_files[2], startRow = 35, startCol = 1, width = 7, height = 5.5, units = "in")
+insertImage(wb, "_wykresy", plot_files[3], startRow = 66, startCol = 1, width = 7, height = 5.5, units = "in")
+
+# (Opcjonalnie) tabela trajektorii w arkuszu _wykresy – żeby było widać punkty liczbowo
+writeData(wb, "_wykresy", "Dane trajektorii (MIN) – ten sam punkt startowy", startRow = 98, startCol = 1)
+writeData(wb, "_wykresy", traj_min, startRow = 99, startCol = 1)
+
+writeData(wb, "_wykresy", "Dane trajektorii (MAX) – ten sam punkt startowy", startRow = 99 + nrow(traj_min) + 3, startCol = 1)
+writeData(wb, "_wykresy", traj_max, startRow = 99 + nrow(traj_min) + 4, startCol = 1)
+
+# Dopasowanie szerokości kolumn dla czytelności (auto)
+setColWidths(wb, "_wyniki", cols = 1:ncol(final_min_wyniki), widths = "auto")
+setColWidths(wb, "_wartości_średnie", cols = 1:ncol(final_min_avg), widths = "auto")
+setColWidths(wb, "_wykresy", cols = 1:ncol(traj_min), widths = "auto")
+
+# Zapis pliku – zmień nazwę na wymaganą w poleceniu, jeśli trzeba
+saveWorkbook(wb, "danep3.xlsx", overwrite = TRUE)
+
+# Informacja w raporcie
+"Zapisano plik: danep3.xlsx"
+```
