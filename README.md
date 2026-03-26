@@ -68,7 +68,16 @@ The experiment includes:
 - maximization reaches the global maximum much more often
 - larger `alpha` generally increases computational cost
 - the starting point strongly affects the final result
+## Example trajectories
 
+The plots below show the Rosenbrock method for the same parameter setting  
+`alpha = 3`, `beta = 1/3`, comparing maximization and minimization.
+
+This gives a compact visual summary of how the search path depends on the optimization goal and the local structure of the objective function.
+
+| Maximization | Minimization |
+|---|---|
+| ![Maximization trajectory for alpha=3, beta=1/3](./figures/path-max-a3-b13.png) | ![Minimization trajectory for alpha=3, beta=1/3](./figures/path-min-a3-b13.png) |
 ## Repository structure
 
 ```text
