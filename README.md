@@ -75,8 +75,8 @@ The plots below show the Rosenbrock method for the same parameter setting
 `alpha = 3`, `beta = 1/3`, for both optimization goals.
 
 <p align="center">
-  <img src="./figures/trajectory-max-a3-b13.png" alt="Maximization trajectory for alpha=3, beta=1/3" width="48%">
-  <img src="./figures/trajectory-min-a3-b13.png" alt="Minimization trajectory for alpha=3, beta=1/3" width="48%">
+  <img src="./figures/path-max-a3-b13.png" alt="Maximization trajectory for alpha=3, beta=1/3" width="48%">
+  <img src="./figures/path-min-a3-b13.png" alt="Minimization trajectory for alpha=3, beta=1/3" width="48%">
 </p>
 
 <p align="center">
