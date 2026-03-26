@@ -1,78 +1,77 @@
 # Rosenbrock Optimization in R
 
-Implementation of the Rosenbrock derivative-free search method for constrained optimization of a two-variable objective function on the domain `[-1, 1] x [-1, 1]`.
+R implementation of the Rosenbrock derivative-free search method for constrained optimization of a two-variable objective function on the domain `[-1, 1] × [-1, 1]`.
 
-The project compares three parameter settings:
-- `(alpha = 2, beta = 1/2)`
-- `(alpha = 3, beta = 1/3)`
-- `(alpha = 4, beta = 1/4)`
+## Overview
+
+This project studies how the Rosenbrock direct search method behaves on a non-convex two-dimensional objective function with multiple local extrema.
+
+The experiment compares three parameter settings:
+
+- `alpha = 2`, `beta = 1/2`
+- `alpha = 3`, `beta = 1/3`
+- `alpha = 4`, `beta = 1/4`
 
 Each configuration is tested on 100 random starting points for:
+
 - minimization of `f(x, y)`
 - maximization of `f(x, y)` via minimization of `-f(x, y)`
-
----
 
 ## Objective function
 
 ```text
 f(x, y) = x^2 - y^2 - cos(1.8*pi*x) - cos(1.6*pi*(y - 0.5)) + 3
+```
 
-The optimization is constrained to the square:
+Subject to:
 
+```text
 (x, y) ∈ [-1, 1] × [-1, 1]
+```
 
-Outside the feasible domain, the constrained objective returns Inf, which prevents the algorithm from leaving the search region.
+Outside the feasible domain, the constrained objective returns `Inf`, which prevents the algorithm from leaving the search region.
 
-Project idea
+## Method
 
-This is a derivative-free optimization project.
-Instead of computing gradients, the algorithm probes the objective function directly and adapts its step sizes depending on success or failure.
+The implementation is based on the Rosenbrock derivative-free search method and includes:
 
-The implementation includes:
+- adaptive step expansion after successful moves
+- step contraction and sign reversal after failed moves
+- basis rotation using Gram-Schmidt orthogonalization
+- stopping based on sufficiently small step size or iteration limit
 
-adaptive step expansion after successful moves
-step contraction and sign reversal after failed moves
-basis rotation using Gram-Schmidt orthogonalization
-stopping based on sufficiently small step size or iteration limit
-Experiment setup
+## Experiment setup
 
 The experiment includes:
 
-100 random starting points sampled from [-1, 1] × [-1, 1]
-3 parameter configurations
-separate runs for minimization and maximization
-classification into global optimum, local optimum, or no convergence
-exported results in raw, aggregated, and trajectory form
-Main results
-Global minimum
-value: approximately 0.388670
-location: approximately (0.000000, -0.815765)
-Global maximum
-value: approximately 5.314836
-location: approximately (-0.592916, -0.115828)
-due to symmetry, an equivalent maximum also appears near (0.592916, -0.115828)
-Key observations
-minimization often converges to a local minimum
-maximization reaches the global maximum much more often
-larger alpha generally increases computational cost
-the starting point strongly affects the final result
-Output interpretation
+- 100 random starting points sampled from `[-1, 1] × [-1, 1]`
+- 3 parameter configurations
+- separate runs for minimization and maximization
+- classification into global optimum, local optimum, or no convergence
 
-The exported results are organized into three logical groups:
+## Main results
 
-_wyniki
-Raw run-by-run outputs for every start and parameter setting
-_wartości_średnie
-Aggregated averages and counts for global/local outcomes
-_wykresy
-Contour plots with optimization trajectories for a selected starting point
+### Global minimum
 
-Useful metrics:
+- value: approximately `0.388670`
+- location: approximately `(0.000000, -0.815765)`
 
-L.wywołań = number of objective function evaluations
-L.zmian bazy = number of basis rotations
-Repository structure
+### Global maximum
+
+- value: approximately `5.314836`
+- location: approximately `(-0.592916, -0.115828)`
+- due to symmetry, an equivalent maximum also appears near `(0.592916, -0.115828)`
+
+## Key observations
+
+- minimization often converges to a local minimum
+- maximization reaches the global maximum much more often
+- larger `alpha` generally increases computational cost
+- the starting point strongly affects the final result
+
+## Repository structure
+
+```text
 .
 ├── README.md
 ├── .gitignore
@@ -83,38 +82,30 @@ Repository structure
 ├── results/
 ├── scripts/
 └── src/
-Folder meaning
-report/ – R Markdown report
-results/ – generated outputs and Excel results
-docs/ – supporting documentation and notes
-src/ – core algorithm code
-scripts/ – runnable scripts
-figures/ – exported plots for README/report
-data/ – input or generated auxiliary data
-Reproducibility
+```
 
-The original implementation uses a fixed random seed so that the experiment can be reproduced consistently.
+## Run
 
-Planned runnable entry point:
+When the project is fully modularized, the experiment should be runnable with:
 
+```bash
 Rscript scripts/run_experiment.R
-Why this project matters
+```
 
-This project is not just about finding one number.
+## Current contents
 
-Because the objective function is highly non-convex and contains multiple local extrema, the main point is to analyze how the Rosenbrock method behaves under:
+This repository currently contains:
 
-different starting points
-different step parameters
-minimization vs maximization
-computational cost vs convergence quality
-Status
+- the original R Markdown report
+- generated Excel results
+- supporting PDF documentation and notes
+- a cleaned project structure prepared for modular refactoring
 
-Current repository version contains:
+## Next steps
 
-the original report in R Markdown form
-the generated Excel output
-project documentation and presentation notes
-an organized structure prepared for modular refactoring into src/ and scripts/
+Planned cleanup includes:
 
-Further cleanup will separate the algorithm, experiment loop, plotting, and export logic into standalone R modules.
+- moving the core algorithm into `src/`
+- separating experiment logic into `scripts/`
+- exporting figures to `figures/`
+- making the project fully reproducible from the command line
